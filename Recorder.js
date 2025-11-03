@@ -2,7 +2,7 @@
 // @name            Starblast Game Recorder
 // @name:ru         Starblast Game Recorder
 // @namespace       https://greasyfork.org/ru/users/1252274-julia1233
-// @version         1.8.4
+// @version         1.8.5
 // @description     Recording + replay via WebSocket simulation with user data protection
 // @description:ru  Запись и воспроизведение сессий Starblast.io с защитой данных пользователя
 // @author          Julia1233
@@ -16,7 +16,7 @@
 // ==/UserScript==
 
 /*
- * Starblast Game Recorder v1.8.4
+ * Starblast Game Recorder v1.8.5
  * Copyright (c) 2025 Julia1233
  * 
  * This program is free software: you can redistribute it and/or modify
@@ -42,6 +42,7 @@
     window.__wsListeners = [];
     window.__fakeServerMode = false;
     window.__hideOverlay = false;
+    window.__loadedRecording = null;
 
     const OriginalWebSocket = window.WebSocket;
     const OriginalSend = OriginalWebSocket.prototype.send;
@@ -102,7 +103,6 @@
 
         const ws = new OriginalWebSocket(...args);
         window.__allWebSockets.push(ws);
-        console.log('[Recorder] WebSocket created:', args[0]);
         return ws;
     };
 
@@ -139,7 +139,7 @@
             },
 
             send: function (data) {
-                console.log('[FakeWS] Send (ignored):', data);
+                // Игнорируем отправку
             },
 
             close: function (code, reason) {
@@ -227,12 +227,14 @@
             this.uiVisible = false;
             this.recordingStartTime = null;
             this.isOver100Seconds = false;
-            this.mouseBlockHandlers = null;
+            this.mouseInputBlocked = false;
 
             window.__recorderInstance = this;
             this.setupUI();
             this.setupKeyboardShortcuts();
+            this.recordMouseMove();
         }
+
         recordIncomingMessage(data) {
             const dataInfo = this.identifyData(data);
 
@@ -293,7 +295,7 @@
 
             if (duration >= 100 && !this.isOver100Seconds) {
                 this.isOver100Seconds = true;
-                document.getElementById('record-status').textContent = '⚠️ 100s! Save as FILE ONLY';
+                document.getElementById('record-status').textContent = '⚠️ 100s! File only';
                 document.getElementById('btn-save').style.background = '#ff6600';
             }
         }
@@ -382,7 +384,7 @@
             `;
 
             container.innerHTML = `
-                <div style="font-weight: bold; color: #0f0; font-size: 14px; margin-bottom: 10px;">🎮 RECORDER v1.8.4 (Shift+R)</div>
+                <div style="font-weight: bold; color: #0f0; font-size: 14px; margin-bottom: 10px;">🎮 RECORDER v1.8.5 (Shift+R)</div>
                 
                 <div style="border-bottom: 1px solid #0f0; margin: 10px 0; padding: 10px 0;">
                     <div style="font-size: 12px; margin-bottom: 8px;">📝 RECORDING:</div>
@@ -401,11 +403,9 @@
 
                 <div style="border-bottom: 1px solid #0f0; margin: 10px 0; padding: 10px 0;">
                     <div style="font-size: 12px; margin-bottom: 8px;">▶ PLAYBACK:</div>
-                    <select id="recordings-list" style="width: 100%; padding: 6px; margin: 5px 0; border: 1px solid #0f0; border-radius: 4px; background: #111; color: #0f0; font-family: monospace; font-size: 11px;">
-                        <option>-- Select --</option>
-                    </select>
                     
                     <div style="display: flex; gap: 5px; margin: 8px 0;">
+                        <button id="btn-import" style="flex: 1; padding: 8px; background: #00ff00; color: #000; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px;">📥 IMPORT</button>
                         <button id="btn-replay" disabled style="flex: 1; padding: 8px; background: #ff8800; color: #000; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px;">🎬 REPLAY</button>
                     </div>
 
@@ -425,19 +425,12 @@
                         <div id="playback-time" style="font-size: 9px; color: #0f0; text-align: center; margin-top: 4px;">0s / 0s</div>
                     </div>
 
-                    <div id="playback-info" style="margin-top: 8px; font-size: 9px; color: #888; padding: 8px; background: #111; border-radius: 4px; max-height: 60px; overflow-y: auto;">No selection</div>
-                </div>
-
-                <div style="display: flex; gap: 5px;">
-                    <button id="btn-import" style="flex: 1; padding: 8px; background: #00ff00; color: #000; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px;">📥 IMPORT</button>
-                    <button id="btn-export" disabled style="flex: 1; padding: 8px; background: #00f; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px;">📤 EXP</button>
-                    <button id="btn-delete" disabled style="flex: 1; padding: 8px; background: #f00; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px;">🗑 DEL</button>
+                    <div id="playback-info" style="margin-top: 8px; font-size: 9px; color: #888; padding: 8px; background: #111; border-radius: 4px; max-height: 60px; overflow-y: auto;">No recording loaded</div>
                 </div>
             `;
 
             document.body.appendChild(container);
             this.setupEventListeners();
-            this.loadRecordingsList();
         }
 
         setupKeyboardShortcuts() {
@@ -464,22 +457,22 @@
             document.getElementById('btn-record').addEventListener('click', () => this.startRecording());
             document.getElementById('btn-stop').addEventListener('click', () => this.stopRecording());
             document.getElementById('btn-save').addEventListener('click', () => this.saveRecording());
+            document.getElementById('btn-import').addEventListener('click', () => this.importRecording());
             document.getElementById('btn-replay').addEventListener('click', () => this.startReplayMode());
             document.getElementById('btn-pause').addEventListener('click', () => this.togglePause());
             document.getElementById('btn-stop-play').addEventListener('click', () => this.stopPlayback());
-            document.getElementById('recordings-list').addEventListener('change', () => this.onRecordingSelected());
-            document.getElementById('btn-delete').addEventListener('click', () => this.deleteRecording());
-            document.getElementById('btn-export').addEventListener('click', () => this.exportRecording());
-            document.getElementById('btn-import').addEventListener('click', () => this.importRecording());
+
             document.getElementById('auto-record').addEventListener('change', (e) => {
                 this.autoRecordEnabled = e.target.checked;
                 this.autoStarted = false;
                 document.getElementById('record-status').textContent = e.target.checked ? 'Auto Ready' : 'Auto OFF';
             });
+
             document.getElementById('speed-control').addEventListener('input', (e) => {
                 this.playbackSpeed = parseFloat(e.target.value);
                 document.getElementById('speed-display').textContent = this.playbackSpeed.toFixed(2) + 'x';
             });
+
             document.getElementById('timeline-scrubber').addEventListener('input', (e) => {
                 if (!this.isPlayback) return;
                 const percent = parseFloat(e.target.value) / 100;
@@ -497,6 +490,22 @@
             document.getElementById('btn-stop').disabled = false;
             document.getElementById('btn-save').disabled = true;
             document.getElementById('btn-save').style.background = '#0f0';
+        }
+
+        recordMouseMove() {
+            document.addEventListener('mousemove', (e) => {
+                if (this.isRecording && !window.__isPlayingMessage) {
+                    this.recordedMessages.push({
+                        type: 'mousemove',
+                        clientX: e.clientX,
+                        clientY: e.clientY,
+                        w: window.innerWidth,
+                        h: window.innerHeight,
+                        timestamp: Date.now()
+                    });
+                    this.updateRecordStatus();
+                }
+            });
         }
 
         stopRecording() {
@@ -527,26 +536,41 @@
                 return;
             }
 
-            const serializedMessages = [];
-            for (const msg of this.recordedMessages) {
-                const serialized = await this.serializeDataAsync(msg.rawData);
-                serializedMessages.push({
-                    type: msg.type,
-                    data: serialized,
-                    relativeTime: msg.timestamp - this.recordedMessages[0].timestamp
-                });
-            }
+            try {
+                const serializedMessages = [];
+                for (const msg of this.recordedMessages) {
+                    let serialized;
 
-            const recordingData = {
-                name: name,
-                messages: serializedMessages,
-                totalDuration: serializedMessages[serializedMessages.length - 1].relativeTime,
-                messageCount: serializedMessages.length,
-                version: 1
-            };
+                    if (msg.type === 'mousemove') {
+                        serialized = {
+                            t: 'm',
+                            x: msg.clientX,
+                            y: msg.clientY,
+                            w: msg.w,
+                            h: msg.h
+                        };
+                    } else {
+                        serialized = await this.serializeDataAsync(msg.rawData);
+                        serialized.t = msg.type;
+                    }
 
-            if (this.isOver100Seconds) {
-                const json = JSON.stringify(recordingData, null, 2);
+                    serializedMessages.push({
+                        ...serialized,
+                        r: msg.timestamp - this.recordedMessages[0].timestamp
+                    });
+                }
+
+                const recordingData = {
+                    n: name,
+                    m: serializedMessages,
+                    d: serializedMessages[serializedMessages.length - 1].r,
+                    c: serializedMessages.length,
+                    v: 1
+                };
+
+                const json = JSON.stringify(recordingData);
+                console.log(`[Recorder] File size: ${(json.length / 1024).toFixed(2)} KB`);
+
                 const blob = new Blob([json], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -555,33 +579,30 @@
                 a.click();
                 URL.revokeObjectURL(url);
 
-                document.getElementById('record-status').textContent = '✅ Saved to FILE!';
+                document.getElementById('record-status').textContent = '✅ Saved!';
+                document.getElementById('recording-name').value = '';
+                document.getElementById('btn-save').style.background = '#0f0';
                 this.recordedMessages = [];
                 this.isOver100Seconds = false;
-            } else {
-                const key = `rec_${Date.now()}_${name}`;
-                localStorage.setItem(key, JSON.stringify(recordingData));
+                this.autoStarted = false;
 
-                document.getElementById('record-status').textContent = '✅ Saved in browser!';
-                this.loadRecordingsList();
+                setTimeout(() => {
+                    document.getElementById('record-status').textContent = 'Ready';
+                }, 1500);
+
+            } catch (err) {
+                console.error('[Recorder] Error:', err);
+                document.getElementById('record-status').textContent = '❌ Error!';
             }
-
-            document.getElementById('recording-name').value = '';
-            document.getElementById('btn-save').style.background = '#0f0';
-            this.autoStarted = false;
-
-            setTimeout(() => {
-                document.getElementById('record-status').textContent = 'Ready';
-            }, 1500);
         }
 
         startReplayMode() {
-            const select = document.getElementById('recordings-list');
-            const key = select.value;
-            if (!key) return;
+            if (!window.__loadedRecording) {
+                alert('Import a recording first!');
+                return;
+            }
 
-            const recordingData = JSON.parse(localStorage.getItem(key));
-            window.__playingRecording = recordingData;
+            window.__playingRecording = window.__loadedRecording;
             window.__fakeServerMode = true;
             window.__hideOverlay = true;
 
@@ -596,9 +617,9 @@
             this.isPaused = false;
             this.playbackIndex = 0;
             this.playbackStartTime = Date.now();
+            this.mouseInputBlocked = false;
 
             this.blockUserMouseInput();
-            console.log('[Recorder] User mouse input BLOCKED');
 
             document.getElementById('btn-pause').disabled = false;
             document.getElementById('btn-stop-play').disabled = false;
@@ -628,6 +649,14 @@
             const msgTime = currentMsg.relativeTime;
 
             if (elapsedTime >= msgTime) {
+                if (currentMsg.type === 'm') {
+                    this.replayMouseMove(
+                        currentMsg.clientX,
+                        currentMsg.clientY,
+                        currentMsg.w || 1920,
+                        currentMsg.h || 1080
+                    );
+                }
                 if (currentMsg.type === 'in') {
                     this.deliverMessage(currentMsg);
                 }
@@ -648,13 +677,6 @@
             window.__isPlayingMessage = true;
 
             const data = this.deserializeData(msgData.data);
-
-            if (window.__playingRecording && this.isPlayback) {
-                const angle = this.extractAngleFromPacket(data);
-                if (angle !== null) {
-                    this.applyRotationFromPlayback(angle);
-                }
-            }
 
             if (this.fakeWs) {
                 const event = new MessageEvent('message', {
@@ -696,96 +718,70 @@
             window.__isPlayingMessage = false;
         }
 
-        extractAngleFromPacket(data) {
+        replayMouseMove(clientX, clientY, recordedWidth, recordedHeight) {
             try {
-                let packet = null;
+                const currentWidth = window.innerWidth;
+                const currentHeight = window.innerHeight;
 
-                if (data instanceof Blob) {
-                    return null;
-                }
+                const scaleX = recordedWidth > 0 ? currentWidth / recordedWidth : 1;
+                const scaleY = recordedHeight > 0 ? currentHeight / recordedHeight : 1;
 
-                if (data instanceof ArrayBuffer) {
-                    const view = new Uint8Array(data);
-                    if (view.length < 2) return null;
-                    packet = (view[0] << 8) | view[1];
-                } else if (ArrayBuffer.isView(data)) {
-                    const view = new Uint8Array(data);
-                    if (view.length < 2) return null;
-                    packet = (view[0] << 8) | view[1];
-                } else if (typeof data === 'string') {
-                    try {
-                        const obj = JSON.parse(data);
-                        if (obj.r !== undefined) {
-                            return obj.r % 360;
-                        }
-                    } catch (e) { }
-                    return null;
-                }
-
-                if (packet === null) return null;
-
-                const angle = packet % 360;
-                return angle;
-            } catch (e) {
-                return null;
-            }
-        }
-
-        applyRotationFromPlayback(angle) {
-            try {
-                const canvas = document.querySelector('canvas');
-                if (!canvas) return;
-
-                const rect = canvas.getBoundingClientRect();
-                const centerX = rect.left + rect.width / 2;
-                const centerY = rect.top + rect.height / 2;
-
-                const rad = (angle * Math.PI) / 180;
-                const distance = 100;
-                const mouseX = centerX + distance * Math.cos(rad);
-                const mouseY = centerY + distance * Math.sin(rad);
+                const scaledX = clientX * scaleX;
+                const scaledY = clientY * scaleY;
 
                 const moveEvent = new MouseEvent('mousemove', {
                     bubbles: true,
                     cancelable: true,
                     view: window,
-                    clientX: mouseX,
-                    clientY: mouseY,
-                    screenX: mouseX,
-                    screenY: mouseY
+                    clientX: scaledX,
+                    clientY: scaledY,
+                    screenX: scaledX,
+                    screenY: scaledY
                 });
 
                 document.dispatchEvent(moveEvent);
-                canvas.dispatchEvent(moveEvent);
+
+                const canvas = document.querySelector('canvas');
+                if (canvas) {
+                    canvas.dispatchEvent(moveEvent);
+                }
             } catch (e) {
-                console.error('[Recorder] Error applying rotation:', e);
+                console.error('[Recorder] Error replaying mouse move:', e);
             }
         }
 
         blockUserMouseInput() {
-            const handler = (e) => {
-                if (window.__playingRecording && this.isPlayback) {
-                    e.stopPropagation();
+            if (this.mouseInputBlocked) return;
+            this.mouseInputBlocked = true;
+
+            const blockHandler = (e) => {
+                if (e.isTrusted) {
                     e.preventDefault();
+                    e.stopPropagation();
+                    return false;
                 }
             };
 
-            document.addEventListener('mousemove', handler, true);
-            document.addEventListener('mousedown', handler, true);
-            document.addEventListener('mouseup', handler, true);
-            document.addEventListener('mouseenter', handler, true);
+            document.addEventListener('mousemove', blockHandler, true);
+            document.addEventListener('mousedown', blockHandler, true);
+            document.addEventListener('mouseup', blockHandler, true);
 
-            this.mouseBlockHandlers = { handler, events: ['mousemove', 'mousedown', 'mouseup', 'mouseenter'] };
+            this.mouseBlockHandlers = {
+                handler: blockHandler,
+                events: ['mousemove', 'mousedown', 'mouseup']
+            };
         }
 
         unblockUserMouseInput() {
-            if (!this.mouseBlockHandlers) return;
+            if (!this.mouseInputBlocked) return;
+            this.mouseInputBlocked = false;
 
-            this.mouseBlockHandlers.events.forEach(event => {
-                document.removeEventListener(event, this.mouseBlockHandlers.handler, true);
-            });
-
-            this.mouseBlockHandlers = null;
+            if (this.mouseBlockHandlers) {
+                this.mouseBlockHandlers.events.forEach(event => {
+                    document.removeEventListener(event, this.mouseBlockHandlers.handler, true);
+                });
+                this.mouseBlockHandlers = null;
+            }
         }
 
         updatePlaybackUI(recordingData) {
@@ -817,7 +813,6 @@
             window.__hideOverlay = false;
 
             this.unblockUserMouseInput();
-            console.log('[Recorder] User mouse input UNBLOCKED');
 
             const overlay = document.getElementById('overlay');
             if (overlay) {
@@ -838,80 +833,14 @@
         }
 
         seekTo(percent) {
-            const select = document.getElementById('recordings-list');
-            const data = JSON.parse(localStorage.getItem(select.value));
+            if (!window.__loadedRecording) return;
+            const data = window.__loadedRecording;
             const targetTime = data.totalDuration * percent;
 
             this.playbackIndex = data.messages.findIndex(m => m.relativeTime >= targetTime);
             if (this.playbackIndex < 0) this.playbackIndex = 0;
 
             this.playbackStartTime = Date.now() - (targetTime / this.playbackSpeed);
-        }
-
-        loadRecordingsList() {
-            const select = document.getElementById('recordings-list');
-            Array.from(select.options).slice(1).forEach(opt => opt.remove());
-
-            for (let i = 0; i < localStorage.length; i++) {
-                const key = localStorage.key(i);
-                if (key && key.startsWith('rec_')) {
-                    try {
-                        const data = JSON.parse(localStorage.getItem(key));
-                        const opt = document.createElement('option');
-                        opt.value = key;
-                        const dur = (data.totalDuration / 1000).toFixed(1);
-                        const inCount = data.messages.filter(m => m.type === 'in').length;
-                        const outCount = data.messages.filter(m => m.type === 'out').length;
-                        opt.textContent = `${data.name} (${dur}s) ↓${inCount}↑${outCount}`;
-                        select.appendChild(opt);
-                    } catch (e) { }
-                }
-            }
-        }
-
-        onRecordingSelected() {
-            const select = document.getElementById('recordings-list');
-            const hasSelection = select.value !== '';
-            document.getElementById('btn-replay').disabled = !hasSelection;
-            document.getElementById('btn-delete').disabled = !hasSelection;
-            document.getElementById('btn-export').disabled = !hasSelection;
-
-            if (hasSelection) {
-                const data = JSON.parse(localStorage.getItem(select.value));
-                const dur = (data.totalDuration / 1000).toFixed(1);
-                const inCount = data.messages.filter(m => m.type === 'in').length;
-                const outCount = data.messages.filter(m => m.type === 'out').length;
-                document.getElementById('playback-info').textContent =
-                    `📹 ${data.name}\n⏱ ${dur}s | ↓${inCount}↑${outCount}`;
-            }
-        }
-
-        deleteRecording() {
-            const select = document.getElementById('recordings-list');
-            const key = select.value;
-            if (!key) return;
-
-            const data = JSON.parse(localStorage.getItem(key));
-            if (confirm(`Delete "${data.name}"?`)) {
-                localStorage.removeItem(key);
-                this.loadRecordingsList();
-                this.onRecordingSelected();
-            }
-        }
-
-        exportRecording() {
-            const select = document.getElementById('recordings-list');
-            const key = select.value;
-            const data = JSON.parse(localStorage.getItem(key));
-
-            const json = JSON.stringify(data, null, 2);
-            const blob = new Blob([json], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${data.name}_${Date.now()}.json`;
-            a.click();
-            URL.revokeObjectURL(url);
         }
 
         importRecording() {
@@ -928,17 +857,44 @@
                     try {
                         const recordingData = JSON.parse(event.target.result);
 
-                        if (!recordingData.messages || !recordingData.name) {
+                        const data = {
+                            name: recordingData.n || recordingData.name || 'imported',
+                            messages: recordingData.m || recordingData.messages || [],
+                            totalDuration: recordingData.d || recordingData.totalDuration || 0,
+                            messageCount: recordingData.c || recordingData.messageCount || 0,
+                            version: recordingData.v || 1
+                        };
+
+                        if (!data.messages || data.messages.length === 0) {
                             alert('Invalid recording file!');
                             return;
                         }
 
-                        const key = `rec_${Date.now()}_${recordingData.name}`;
-                        localStorage.setItem(key, JSON.stringify(recordingData));
+                        data.messages = data.messages.map(msg => {
+                            const normalized = {
+                                type: msg.t || msg.type,
+                                relativeTime: msg.r || msg.relativeTime || 0
+                            };
 
-                        this.loadRecordingsList();
-                        alert(`✅ Imported: ${recordingData.name}`);
+                            if (msg.t === 'm' || msg.type === 'mousemove') {
+                                normalized.clientX = msg.x;
+                                normalized.clientY = msg.y;
+                                normalized.w = msg.w || 1920;
+                                normalized.h = msg.h || 1080;
+                            } else {
+                                normalized.data = msg.data || msg;
+                            }
+
+                            return normalized;
+                        });
+
+                        window.__loadedRecording = data;
+                        document.getElementById('btn-replay').disabled = false;
+                        document.getElementById('playback-info').textContent = `📹 ${data.name}\n⏱ ${(data.totalDuration / 1000).toFixed(1)}s | ${data.messageCount} msg`;
+
+                        alert(`✅ Imported: ${data.name}`);
                     } catch (err) {
+                        console.error('[Recorder] Import error:', err);
                         alert('Error importing file: ' + err.message);
                     }
                 };
@@ -952,13 +908,14 @@
             if (!this.isRecording) return;
             const inCount = this.recordedMessages.filter(m => m.type === 'in').length;
             const outCount = this.recordedMessages.filter(m => m.type === 'out').length;
+            const mouseCount = this.recordedMessages.filter(m => m.type === 'mousemove').length;
             const baseTime = this.recordedMessages[0].timestamp;
             const lastTime = this.recordedMessages[this.recordedMessages.length - 1].timestamp;
             const dur = (lastTime - baseTime) / 1000;
-            document.getElementById('record-status').textContent = `🔴 ↓${inCount} ↑${outCount} | ${dur.toFixed(1)}s`;
+            document.getElementById('record-status').textContent = `🔴 ↓${inCount} ↑${outCount} 🖱${mouseCount} | ${dur.toFixed(1)}s`;
         }
     }
 
     window.__gameRecorder = new GameRecorder();
-    console.log('[Recorder] v1.8.4 - Replay mode with user data protection');
+    console.log('[Recorder] v1.8.5 - Mouse recording & replay system');
 })();
