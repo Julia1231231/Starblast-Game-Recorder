@@ -2,7 +2,7 @@
 // @name            Starblast Game Recorder
 // @name:ru         Starblast Game Recorder
 // @namespace       https://greasyfork.org/ru/users/1252274-julia1233
-// @version         1.8.6
+// @version         1.8.7
 // @description     Recording + replay via WebSocket simulation with user data protection
 // @description:ru  Запись и воспроизведение сессий Starblast.io с защитой данных пользователя
 // @author          Julia1233
@@ -16,7 +16,7 @@
 // ==/UserScript==
 
 /*
- * Starblast Game Recorder v1.8.6
+ * Starblast Game Recorder v1.8.7
  * Copyright (c) 2025 Julia1233
  * 
  * This program is free software: you can redistribute it and/or modify
@@ -238,10 +238,10 @@
 
         loadAutoRecordState() {
             const saved = localStorage.getItem('recorder_auto_record');
-            if (saved !== null) {
-                this.autoRecordEnabled = JSON.parse(saved);
-            } else {
+            if (saved === null) {
                 this.autoRecordEnabled = false;
+            } else {
+                this.autoRecordEnabled = JSON.parse(saved);
             }
         }
 
@@ -398,7 +398,7 @@
             `;
 
             container.innerHTML = `
-                <div style="font-weight: bold; color: #0f0; font-size: 14px; margin-bottom: 10px;">🎮 RECORDER v1.8.6 (Shift+R)</div>
+                <div style="font-weight: bold; color: #0f0; font-size: 14px; margin-bottom: 10px;">🎮 RECORDER v1.8.7 (Shift+R)</div>
                 
                 <div style="border-bottom: 1px solid #0f0; margin: 10px 0; padding: 10px 0;">
                     <div style="font-size: 12px; margin-bottom: 8px;">📝 RECORDING:</div>
@@ -407,7 +407,7 @@
                         <button id="btn-stop" disabled style="flex: 1; padding: 8px; background: #333; color: #0f0; border: 1px solid #0f0; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px;">⏹ STOP</button>
                     </div>
                     <div style="display: flex; gap: 5px; align-items: center; margin: 8px 0;">
-                        <input type="checkbox" id="auto-record" checked style="width: 18px; height: 18px;">
+                        <input type="checkbox" id="auto-record" style="width: 18px; height: 18px;">
                         <label for="auto-record" style="font-size: 11px; cursor: pointer;">🔄 Auto</label>
                     </div>
                     <input type="text" id="recording-name" placeholder="session_name" style="width: 95.5%; padding: 6px; margin: 5px 0; border: 1px solid #0f0; border-radius: 4px; background: #111; color: #0f0; font-family: monospace; font-size: 11px;">
@@ -442,7 +442,7 @@
                     <div id="playback-info" style="margin-top: 8px; font-size: 9px; color: #888; padding: 8px; background: #111; border-radius: 4px; max-height: 60px; overflow-y: auto;">No recording loaded</div>
                 </div>
             `;
-
+            document.getElementById('auto-record').checked = this.autoRecordEnabled;
             document.body.appendChild(container);
             this.setupEventListeners();
         }
@@ -932,5 +932,5 @@
     }
 
     window.__gameRecorder = new GameRecorder();
-    console.log('[Recorder] v1.8.6 - Mouse recording & replay system');
+    console.log('[Recorder] v1.8.7 - Mouse recording & replay system');
 })();
