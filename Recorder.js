@@ -2,7 +2,7 @@
 // @name            Starblast Game Recorder
 // @name:ru         Starblast Game Recorder
 // @namespace       https://greasyfork.org/ru/users/1252274-julia1233
-// @version         1.8.2
+// @version         1.8.3
 // @description     Recording + replay via WebSocket simulation with user data protection
 // @description:ru  Запись и воспроизведение сессий Starblast.io с защитой данных пользователя
 // @author          Julia1233
@@ -16,7 +16,7 @@
 // ==/UserScript==
 
 /*
- * Starblast Game Recorder v1.8.2
+ * Starblast Game Recorder v1.8.3
  * Copyright (c) 2025 Julia1233
  * 
  * This program is free software: you can redistribute it and/or modify
@@ -234,7 +234,6 @@
         }
         recordIncomingMessage(data) {
             const dataInfo = this.identifyData(data);
-            console.log('[Recorder] ↓ IN:', dataInfo.type, dataInfo.size);
 
             if (!this.autoStarted && this.autoRecordEnabled) {
                 if (this.shouldAutoStart(data)) {
@@ -260,7 +259,6 @@
 
         recordOutgoingMessage(data) {
             const dataInfo = this.identifyData(data);
-            console.log('[Recorder] ↑ OUT:', dataInfo.type, dataInfo.size);
 
             if (!this.autoStarted && this.autoRecordEnabled) {
                 if (this.shouldAutoStart(data)) {
@@ -383,7 +381,7 @@
             `;
 
             container.innerHTML = `
-                <div style="font-weight: bold; color: #0f0; font-size: 14px; margin-bottom: 10px;">🎮 RECORDER v1.8.2 (Shift+R)</div>
+                <div style="font-weight: bold; color: #0f0; font-size: 14px; margin-bottom: 10px;">🎮 RECORDER v1.8.3 (Shift+R)</div>
                 
                 <div style="border-bottom: 1px solid #0f0; margin: 10px 0; padding: 10px 0;">
                     <div style="font-size: 12px; margin-bottom: 8px;">📝 RECORDING:</div>
@@ -856,5 +854,5 @@
     }
 
     window.__gameRecorder = new GameRecorder();
-    console.log('[Recorder] v1.8.2 - Replay mode with user data protection');
+    console.log('[Recorder] v1.8.3 - Replay mode with user data protection');
 })();
